@@ -49,3 +49,13 @@ export interface JwtPayload {
   iat?: number;
   exp?: number;
 }
+
+export interface CleanJwtPayload {
+  email: string;
+  sub: string;
+  role: {
+    id: string;
+    code: string;
+    name: string;
+  };
+}

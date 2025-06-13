@@ -2,6 +2,7 @@ import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { LoginDto } from '../dto/login.dto';
 import { AuthService } from '../services/auth.service';
+import { RefreshTokenDto } from '../dto/refresh-token.dto';
 
 @Controller()
 export class AuthController {
@@ -16,7 +17,7 @@ export class AuthController {
   }
 
   @MessagePattern({ cmd: 'auth.refreshToken' })
-  async refreshToken(@Payload() data: { refreshToken: string }) {
+  async refreshToken(@Payload() data: RefreshTokenDto) {
     this.logger.log('📥 Solicitud de refresh token recibida');
     return await this.authService.refreshToken(data.refreshToken);
   }

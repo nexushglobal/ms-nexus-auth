@@ -141,10 +141,8 @@ export class AuthService {
     refreshToken: string,
   ): Promise<{ accessToken: string; refreshToken: string }> {
     try {
-      // 1. Verificar refresh token
       const payload = this.jwtAuthService.verifyRefreshToken(refreshToken);
 
-      // 2. Verificar que el usuario siga activo
       const isUserActive = await firstValueFrom(
         this.usersClient.send(
           { cmd: 'user.validateUserExists' },
@@ -159,8 +157,8 @@ export class AuthService {
         });
       }
 
-      // 3. Generar nuevos tokens
-      const newTokens = this.jwtAuthService.generateTokens(payload);
+      const cleanPayload = this.jwtAuthService.createCleanPayload(payload);
+      const newTokens = this.jwtAuthService.generateTokens(cleanPayload);
 
       this.logger.log(`🔄 Tokens renovados para usuario: ${payload.sub}`);
       return newTokens;
