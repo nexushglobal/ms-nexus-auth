@@ -1,0 +1,199 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { RpcException } from '@nestjs/microservices';
+import {
+  ClientProxy,
+  ClientProxyFactory,
+  Transport,
+} from '@nestjs/microservices';
+import * as bcrypt from 'bcryptjs';
+import { firstValueFrom } from 'rxjs';
+
+import { envs } from '../../config/envs';
+import { LoginDto } from '../dto/login.dto';
+import {
+  LoginResponse,
+  ViewResponse,
+} from '../interfaces/login-response.interface';
+import { JwtAuthService } from './jwt.service';
+
+@Injectable()
+export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+  private readonly usersClient: ClientProxy;
+
+  constructor(private readonly jwtAuthService: JwtAuthService) {
+    this.usersClient = ClientProxyFactory.create({
+      transport: Transport.NATS,
+      options: {
+        servers: [envs.NATS_SERVERS],
+      },
+    });
+  }
+
+  async login(loginDto: LoginDto): Promise<LoginResponse> {
+    try {
+      this.logger.log(`🔐 Intento de login para: ${loginDto.email}`);
+
+      // 1. Buscar usuario con password para validar credenciales
+      const userWithPassword = await firstValueFrom(
+        this.usersClient.send(
+          { cmd: 'user.findByEmailWithPassword' },
+          { email: loginDto.email },
+        ),
+      );
+
+      if (!userWithPassword) {
+        throw new RpcException({
+          status: 401,
+          message: 'Credenciales inválidas',
+        });
+      }
+
+      // 2. Validar contraseña
+      const isPasswordValid = await bcrypt.compare(
+        loginDto.password,
+        String(userWithPassword.password),
+      );
+
+      if (!isPasswordValid) {
+        throw new RpcException({
+          status: 401,
+          message: 'Credenciales inválidas',
+        });
+      }
+
+      // 3. Obtener información completa del usuario con rol
+      const userWithRole = await firstValueFrom(
+        this.usersClient.send(
+          { cmd: 'user.findUserWithRoleById' },
+          { id: userWithPassword.id },
+        ),
+      );
+
+      if (!userWithRole || !userWithRole.isActive) {
+        throw new RpcException({
+          status: 401,
+          message: 'Usuario inactivo o no encontrado',
+        });
+      }
+
+      // 4. Obtener vistas del rol
+      const viewsResponse = await firstValueFrom(
+        this.usersClient.send(
+          { cmd: 'user.view.getViewsByRoleId' },
+          { roleId: userWithRole.role.id },
+        ),
+      );
+
+      const views: ViewResponse[] = viewsResponse.success
+        ? viewsResponse.views
+        : [];
+
+      // 5. Actualizar último login
+      await firstValueFrom(
+        this.usersClient.send(
+          { cmd: 'user.updateLastLoginAt' },
+          { userId: userWithRole.id },
+        ),
+      );
+
+      // 6. Generar tokens
+      const payload = this.jwtAuthService.createPayload(userWithRole);
+      const tokens = this.jwtAuthService.generateTokens(payload);
+
+      // 7. Estructurar respuesta
+      const loginResponse: LoginResponse = {
+        user: {
+          id: userWithRole.id,
+          email: userWithRole.email,
+          photo: userWithRole.photo || null,
+          nickname: userWithRole.nickname || null,
+          firstName: userWithRole.personalInfo?.firstName || '',
+          lastName: userWithRole.personalInfo?.lastName || '',
+          role: {
+            id: userWithRole.role.id,
+            code: userWithRole.role.code,
+            name: userWithRole.role.name,
+          },
+          views: this.formatViews(views),
+        },
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      };
+
+      this.logger.log(`✅ Login exitoso para: ${loginDto.email}`);
+      return loginResponse;
+    } catch (error) {
+      this.logger.error(`❌ Error en login para ${loginDto.email}:`, error);
+
+      if (error instanceof RpcException) {
+        throw error;
+      }
+
+      throw new RpcException({
+        status: 500,
+        message: 'Error interno del servidor durante el login',
+      });
+    }
+  }
+
+  async refreshToken(
+    refreshToken: string,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    try {
+      // 1. Verificar refresh token
+      const payload = this.jwtAuthService.verifyRefreshToken(refreshToken);
+
+      // 2. Verificar que el usuario siga activo
+      const isUserActive = await firstValueFrom(
+        this.usersClient.send(
+          { cmd: 'user.validateUserExists' },
+          { userId: payload.sub },
+        ),
+      );
+
+      if (!isUserActive) {
+        throw new RpcException({
+          status: 401,
+          message: 'Usuario no válido',
+        });
+      }
+
+      // 3. Generar nuevos tokens
+      const newTokens = this.jwtAuthService.generateTokens(payload);
+
+      this.logger.log(`🔄 Tokens renovados para usuario: ${payload.sub}`);
+      return newTokens;
+    } catch (error) {
+      this.logger.error('❌ Error renovando tokens:', error);
+
+      if (error instanceof RpcException) {
+        throw error;
+      }
+
+      throw new RpcException({
+        status: 401,
+        message: 'Token de refresh inválido',
+      });
+    }
+  }
+
+  private formatViews(views: any[]): ViewResponse[] {
+    return views.map((view) => ({
+      id: view.id,
+      code: view.code,
+      name: view.name,
+      icon: view.icon || null,
+      url: view.url || null,
+      order: view.order,
+      metadata: view.metadata || null,
+      children: Array.isArray(view.children)
+        ? this.formatViews(view.children as any[])
+        : [],
+    }));
+  }
+
+  async onModuleDestroy() {
+    await this.usersClient.close();
+  }
+}
