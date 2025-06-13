@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { RpcException } from '@nestjs/microservices';
 import {
   ClientProxy,
   ClientProxyFactory,
+  RpcException,
   Transport,
 } from '@nestjs/microservices';
 import * as bcrypt from 'bcryptjs';
@@ -34,7 +34,6 @@ export class AuthService {
     try {
       this.logger.log(`🔐 Intento de login para: ${loginDto.email}`);
 
-      // 1. Buscar usuario con password para validar credenciales
       const userWithPassword = await firstValueFrom(
         this.usersClient.send(
           { cmd: 'user.findByEmailWithPassword' },
@@ -49,7 +48,6 @@ export class AuthService {
         });
       }
 
-      // 2. Validar contraseña
       const isPasswordValid = await bcrypt.compare(
         loginDto.password,
         String(userWithPassword.password),
@@ -62,7 +60,6 @@ export class AuthService {
         });
       }
 
-      // 3. Obtener información completa del usuario con rol
       const userWithRole = await firstValueFrom(
         this.usersClient.send(
           { cmd: 'user.findUserWithRoleById' },
@@ -77,7 +74,6 @@ export class AuthService {
         });
       }
 
-      // 4. Obtener vistas del rol
       const viewsResponse = await firstValueFrom(
         this.usersClient.send(
           { cmd: 'user.view.getViewsByRoleId' },
@@ -89,7 +85,6 @@ export class AuthService {
         ? viewsResponse.views
         : [];
 
-      // 5. Actualizar último login
       await firstValueFrom(
         this.usersClient.send(
           { cmd: 'user.updateLastLoginAt' },
@@ -97,11 +92,9 @@ export class AuthService {
         ),
       );
 
-      // 6. Generar tokens
       const payload = this.jwtAuthService.createPayload(userWithRole);
       const tokens = this.jwtAuthService.generateTokens(payload);
 
-      // 7. Estructurar respuesta
       const loginResponse: LoginResponse = {
         user: {
           id: userWithRole.id,
