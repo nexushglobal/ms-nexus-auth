@@ -4,6 +4,8 @@ import { envs } from '../config/envs';
 import { AuthController } from './controllers/auth.controller';
 import { AuthService } from './services/auth.service';
 import { JwtAuthService } from './services/jwt.service';
+import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
+import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Module({
   imports: [
@@ -14,7 +16,7 @@ import { JwtAuthService } from './services/jwt.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthService],
+  providers: [AuthService, JwtAuthService, JwtRefreshStrategy, JwtStrategy],
   exports: [AuthService, JwtAuthService],
 })
 export class AuthModule {}

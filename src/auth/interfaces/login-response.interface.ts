@@ -1,4 +1,3 @@
-// src/auth/interfaces/login-response.interface.ts
 export interface LoginResponse {
   user: {
     id: string;
