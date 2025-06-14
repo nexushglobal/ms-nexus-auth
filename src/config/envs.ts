@@ -7,7 +7,6 @@ interface EnvVars {
   NATS_SERVERS: string;
   JWT_SECRET: string;
   JWT_REFRESH_SECRET: string;
-  FRONTEND_URL: string;
 }
 
 const envsSchema = joi
@@ -29,10 +28,6 @@ const envsSchema = joi
       .string()
       .required()
       .description('JWT secret for signing refresh tokens'),
-    FRONTEND_URL: joi
-      .string()
-      .default('http://localhost:3000')
-      .description('URL of the frontend application'),
   })
   .unknown(true);
 
