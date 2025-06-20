@@ -10,10 +10,7 @@ import { firstValueFrom } from 'rxjs';
 
 import { envs } from '../../config/envs';
 import { LoginDto } from '../dto/login.dto';
-import {
-  LoginResponse,
-  ViewResponse,
-} from '../interfaces/login-response.interface';
+import { LoginResponse } from '../interfaces/login-response.interface';
 import { JwtAuthService } from './jwt.service';
 
 @Injectable()
@@ -74,17 +71,6 @@ export class AuthService {
         });
       }
 
-      const viewsResponse = await firstValueFrom(
-        this.usersClient.send(
-          { cmd: 'user.view.getViewsByRoleId' },
-          { roleId: userWithRole.role.id },
-        ),
-      );
-
-      const views: ViewResponse[] = viewsResponse.success
-        ? viewsResponse.views
-        : [];
-
       await firstValueFrom(
         this.usersClient.send(
           { cmd: 'user.updateLastLoginAt' },
@@ -108,7 +94,6 @@ export class AuthService {
             code: userWithRole.role.code,
             name: userWithRole.role.name,
           },
-          views: this.formatViews(views),
         },
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
@@ -167,21 +152,6 @@ export class AuthService {
         message: 'Token de refresh inválido',
       });
     }
-  }
-
-  private formatViews(views: any[]): ViewResponse[] {
-    return views.map((view) => ({
-      id: view.id,
-      code: view.code,
-      name: view.name,
-      icon: view.icon || null,
-      url: view.url || null,
-      order: view.order,
-      metadata: view.metadata || null,
-      children: Array.isArray(view.children)
-        ? this.formatViews(view.children as any[])
-        : [],
-    }));
   }
 
   async onModuleDestroy() {
