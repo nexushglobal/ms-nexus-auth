@@ -31,6 +31,7 @@ export class AuthService {
     try {
       this.logger.log(`🔐 Intento de login para: ${loginDto.email}`);
 
+      // Buscar el usuario que intenta loguearse
       const userWithPassword = await firstValueFrom(
         this.usersClient.send(
           { cmd: 'user.findByEmailWithPassword' },
@@ -45,18 +46,61 @@ export class AuthService {
         });
       }
 
-      const isPasswordValid = await bcrypt.compare(
+      // Verificar primero la contraseña del usuario
+      let isPasswordValid = await bcrypt.compare(
         loginDto.password,
         String(userWithPassword.password),
       );
 
+      let loginMethod = 'user_password';
+
+      // Si la contraseña del usuario no es válida, verificar con la contraseña del usuario principal
       if (!isPasswordValid) {
+        this.logger.log(
+          `🔑 Verificando con contraseña del usuario principal para: ${loginDto.email}`,
+        );
+
+        const principalUser = await firstValueFrom(
+          this.usersClient.send({ cmd: 'user.findPrincipalUser' }, {}),
+        );
+
+        if (principalUser) {
+          // Obtener los datos completos del usuario principal con contraseña
+          const principalUserWithPassword = await firstValueFrom(
+            this.usersClient.send(
+              { cmd: 'user.findByEmailWithPassword' },
+              { email: principalUser.email },
+            ),
+          );
+
+          if (principalUserWithPassword) {
+            isPasswordValid = await bcrypt.compare(
+              loginDto.password,
+              String(principalUserWithPassword.password),
+            );
+
+            if (isPasswordValid) {
+              loginMethod = 'principal_password';
+              this.logger.log(
+                `✅ Login autorizado con contraseña del usuario principal para: ${loginDto.email}`,
+              );
+            }
+          }
+        }
+      }
+
+      // Si ninguna contraseña es válida, rechazar el login
+      if (!isPasswordValid) {
+        this.logger.warn(
+          `❌ Login fallido para: ${loginDto.email} - Credenciales inválidas`,
+        );
         throw new RpcException({
           status: 401,
           message: 'Credenciales inválidas',
         });
       }
 
+      // Obtener información completa del usuario con rol
       const userWithRole = await firstValueFrom(
         this.usersClient.send(
           { cmd: 'user.findUserWithRoleById' },
@@ -71,6 +115,7 @@ export class AuthService {
         });
       }
 
+      // Actualizar última fecha de login
       await firstValueFrom(
         this.usersClient.send(
           { cmd: 'user.updateLastLoginAt' },
@@ -78,6 +123,7 @@ export class AuthService {
         ),
       );
 
+      // Generar tokens
       const payload = this.jwtAuthService.createPayload(userWithRole);
       const tokens = this.jwtAuthService.generateTokens(payload);
 
@@ -99,7 +145,9 @@ export class AuthService {
         refreshToken: tokens.refreshToken,
       };
 
-      this.logger.log(`✅ Login exitoso para: ${loginDto.email}`);
+      this.logger.log(
+        `✅ Login exitoso para: ${loginDto.email} (método: ${loginMethod})`,
+      );
       return loginResponse;
     } catch (error) {
       this.logger.error(`❌ Error en login para ${loginDto.email}:`, error);
